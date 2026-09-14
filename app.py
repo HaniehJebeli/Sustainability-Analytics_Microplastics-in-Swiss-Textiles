@@ -24,7 +24,7 @@ from src.framework_matcher import match_frameworks
 from src.greenwashing import run_greenwashing_check
 
 load_dotenv()
-CACHE_PATH = "data/cache/business_summaries_cache.json"
+CACHE_PATH = "business_summaries_cache.json"
 
 st.set_page_config(page_title="Re:Nova Verification Demo", layout="wide", page_icon="🌿")
 
@@ -239,7 +239,10 @@ st.sidebar.title("🌿 Re:Nova")
 st.sidebar.caption("Verification engine controls")
 
 mode = st.sidebar.radio("Mode", ["Example brand", "Answer questions live"])
-
+st.sidebar.caption(
+    ":gray[Clean = claims match evidence. Red-flag = claims contradicted by "
+    "evidence. Amber = mixed, partially substantiated.]"
+)
 session = None
 cache_key = None
 use_cache = True
