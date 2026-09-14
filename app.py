@@ -1,9 +1,10 @@
 """
 Re:Nova Verification Engine — interactive Streamlit demo.
 
-Sidebar: choose an example brand OR answer the intake questions live.
-Main area: metric cards, tabbed views (Relevance / Risk / Business Summary),
-with a plotly gauge and bar chart for visual interactivity.
+Sidebar: mode switch + example brand picker only.
+Main area: live questionnaire (when in that mode), metrics, and a tabbed
+dashboard (Relevance / Risk / Business Summary), laid out in a centered,
+max-width container with a consistent green/amber/red/gray color system.
 
 Setup:
   pip install streamlit groq python-dotenv plotly
@@ -13,6 +14,7 @@ Run:
 """
 import os
 import json
+import textwrap
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,18 +30,77 @@ CACHE_PATH = "business_summaries_cache.json"
 
 st.set_page_config(page_title="Re:Nova Verification Demo", layout="wide", page_icon="🌿")
 
-# ── Minimal custom styling ────────────────────────────────────────────────────
-st.markdown("""
+# ── Color system ───────────────────────────────────────────────────────────────
+GREEN = "#3F7D4E"   # good / matched / low risk
+AMBER = "#D89A2E"   # caution / partial
+RED = "#D65A5A"     # contradiction / high risk
+GRAY = "#8B95A1"    # informational / neutral
+RISK_COLOR = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED}
+RISK_LABEL = {"GREEN": "Low Risk", "AMBER": "Moderate Risk", "RED": "High Risk"}
+
+# ── Global styling ─────────────────────────────────────────────────────────────
+st.markdown(f"""
 <style>
-    div[data-testid="stMetric"] {
+    .block-container {{
+        max-width: 1300px;
+        margin: 0 auto;
+        padding-top: 2rem;
+    }}
+    div[data-testid="stMetric"] {{
         background-color: rgba(255,255,255,0.03);
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 10px;
-        padding: 12px 16px;
-    }
-    .flag-critical { border-left: 4px solid #e5484d; padding: 8px 12px; margin-bottom: 6px; background: rgba(229,72,77,0.08); border-radius: 4px; }
-    .flag-moderate { border-left: 4px solid #f5a623; padding: 8px 12px; margin-bottom: 6px; background: rgba(245,166,35,0.08); border-radius: 4px; }
-    .flag-low      { border-left: 4px solid #6b7280; padding: 8px 12px; margin-bottom: 6px; background: rgba(107,114,128,0.08); border-radius: 4px; }
+        padding: 14px 18px;
+    }}
+    div[data-testid="stMetricValue"] {{
+        font-size: 1.7rem;
+        font-weight: 700;
+    }}
+    .risk-hero {{
+        display: flex; flex-direction: column; gap: 6px;
+    }}
+    .risk-hero .big {{
+        font-size: 2.1rem; font-weight: 800; line-height: 1.1;
+    }}
+    .risk-pill {{
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 0.8rem; font-weight: 600; width: fit-content;
+        padding: 3px 10px; border-radius: 999px;
+    }}
+    .risk-dot {{
+        width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+    }}
+    .fw-card {{
+        border-radius: 10px; padding: 14px 18px; margin-bottom: 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+    }}
+    .fw-card .fw-rank {{
+        font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em;
+        text-transform: uppercase; opacity: 0.65;
+    }}
+    .fw-card .fw-name {{
+        font-size: 1.25rem; font-weight: 800; margin: 2px 0 6px 0;
+    }}
+    .fw-card .fw-reason {{
+        font-size: 0.92rem; opacity: 0.85; line-height: 1.4;
+    }}
+    .fw-row {{
+        display: flex; align-items: baseline; gap: 10px;
+        padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }}
+    .fw-row .fw-row-rank {{
+        opacity: 0.5; font-size: 0.8rem; width: 22px; flex-shrink: 0;
+    }}
+    .fw-row .fw-row-name {{
+        font-weight: 600; width: 150px; flex-shrink: 0;
+    }}
+    .fw-row .fw-row-reason {{
+        opacity: 0.65; font-size: 0.85rem;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }}
+    .flag-critical {{ border-left: 4px solid {RED}; padding: 10px 14px; margin-bottom: 8px; background: rgba(214,90,90,0.08); border-radius: 4px; }}
+    .flag-moderate {{ border-left: 4px solid {AMBER}; padding: 10px 14px; margin-bottom: 8px; background: rgba(216,154,46,0.08); border-radius: 4px; }}
+    .flag-low      {{ border-left: 4px solid {GRAY}; padding: 10px 14px; margin-bottom: 8px; background: rgba(139,149,161,0.08); border-radius: 4px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,6 +166,10 @@ What specific evidence drives that recommendation? Be concrete and concise."""
         cache[cache_key] = summary
         save_cache(cache)
     return summary
+
+
+def truncate(text: str, n: int = 70) -> str:
+    return textwrap.shorten(text, width=n, placeholder="…")
 
 
 # ── Example brand data ────────────────────────────────────────────────────────
@@ -175,8 +240,7 @@ EXAMPLE_BRANDS = {
     },
 }
 
-# Field labels + guidance text — sourced directly from questions_stage1.py
-# (the real Stage 1 methodology), grouped by the actual 4 pillars.
+# Field labels + guidance — sourced from questions_stage1.py, grouped by pillar.
 FIELD_GROUPS = {
     "Pillar 1 — Company": {
         "O-1.1": ("What is your company's core mission? Does it explicitly reference social or environmental purpose?",
@@ -233,19 +297,17 @@ FIELD_GROUPS = {
 }
 
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
+# ── Sidebar (mode + brand picker ONLY — questionnaire moved to main area) ──────
 
 st.sidebar.title("🌿 Re:Nova")
 st.sidebar.caption("Verification engine controls")
 
 mode = st.sidebar.radio("Mode", ["Example brand", "Answer questions live"])
-
 st.sidebar.caption(
     ":gray[If you click **Example brand**, you'll instantly see results for one "
     "of 3 pre-built sample brands. If you click **Answer questions live**, you'll "
-    "fill in your own answers and get a real-time verdict.]"
+    "fill in your own answers in the main panel and get a real-time verdict.]"
 )
-
 
 session = None
 cache_key = None
@@ -253,30 +315,15 @@ use_cache = True
 
 if mode == "Example brand":
     brand_label = st.sidebar.selectbox("Select an example brand", list(EXAMPLE_BRANDS.keys()))
+    st.sidebar.caption(
+        ":gray[If you select **Clean brand**, you'll see a case where claims match "
+        "the evidence. If you select **Red-flag brand**, you'll see claims "
+        "contradicted by the evidence. If you select **Amber brand**, you'll see "
+        "a mixed, partially substantiated case.]"
+    )
     session = build_session(EXAMPLE_BRANDS[brand_label])
     cache_key = brand_label
     use_cache = True
-else:
-    st.sidebar.info("Fill in what you know — leave fields blank to skip them.")
-    live_answers = {}
-    with st.sidebar.form("live_intake_form"):
-        for group_name, fields in FIELD_GROUPS.items():
-            with st.expander(group_name, expanded=False):
-                for qid, (question_text, guidance) in fields.items():
-                    live_answers[qid] = st.text_area(
-                        question_text, key=f"live_{qid}", height=60, help=guidance
-                    )
-        submitted = st.form_submit_button("Run verification")
-    if submitted:
-        session = build_session(live_answers)
-        cache_key = None   # live answers aren't cached — always a fresh call
-        use_cache = False
-        st.session_state["live_session_ready"] = True
-        st.session_state["live_last_answers"] = live_answers
-    elif st.session_state.get("live_session_ready") and "live_last_answers" in st.session_state:
-        session = build_session(st.session_state["live_last_answers"])
-        cache_key = None
-        use_cache = False
 
 
 # ── Main area ──────────────────────────────────────────────────────────────────
@@ -284,13 +331,37 @@ else:
 st.title("Re:Nova Verification Engine")
 st.caption("Certification relevance matching + greenwashing risk assessment, with an AI-generated business summary.")
 
+if mode == "Answer questions live":
+    st.subheader("Brand intake questionnaire")
+    st.caption("Fill in what you know across the 4 pillars below — leave anything blank to skip it.")
+    live_answers = {}
+    with st.form("live_intake_form"):
+        pillar_tabs = st.tabs(list(FIELD_GROUPS.keys()))
+        for tab, (group_name, fields) in zip(pillar_tabs, FIELD_GROUPS.items()):
+            with tab:
+                for qid, (question_text, guidance) in fields.items():
+                    live_answers[qid] = st.text_area(
+                        question_text, key=f"live_{qid}", height=70, help=guidance
+                    )
+        submitted = st.form_submit_button("Run verification", type="primary")
+    if submitted:
+        st.session_state["live_last_answers"] = live_answers
+        st.session_state["live_session_ready"] = True
+    if st.session_state.get("live_session_ready") and "live_last_answers" in st.session_state:
+        session = build_session(st.session_state["live_last_answers"])
+        cache_key = None
+        use_cache = False
+    st.divider()
+
 if session is None:
-    st.info("👈 Choose an example brand, or switch to live mode and submit the intake form.")
+    st.info("👈 Choose an example brand in the sidebar, or fill in the form above and click **Run verification**.")
     st.stop()
 
 relevance_result = match_frameworks(session)
 assessment = run_greenwashing_check(session)
 overall = assessment.overall_risk.value.upper()
+risk_color = RISK_COLOR.get(overall, GRAY)
+risk_label = RISK_LABEL.get(overall, overall)
 
 relevance_rows = [
     {"Rank": e.priority_rank, "Framework": e.acronym, "Reason": e.reason}
@@ -303,15 +374,23 @@ flag_rows = [
 
 critical_n = sum(1 for f in assessment.flags if f.priority.value == "critical")
 moderate_n = sum(1 for f in assessment.flags if f.priority.value == "moderate")
-low_n = sum(1 for f in assessment.flags if f.priority.value == "low")
 
-# ── Metric row ──────────────────────────────────────────────────────────────
-m1, m2, m3, m4 = st.columns(4)
-risk_emoji = {"GREEN": "🟢", "AMBER": "🟠", "RED": "🔴"}.get(overall, "")
-m1.metric("Overall risk", f"{risk_emoji} {overall}")
-m2.metric("Critical flags", critical_n)
-m3.metric("Moderate flags", moderate_n)
-m4.metric("Relevant frameworks", len(relevance_result.relevant_frameworks))
+# ── Metric row — de-duplicated risk hero + supporting metrics ─────────────────
+c1, c2, c3, c4 = st.columns([1.4, 1, 1, 1])
+with c1:
+    st.markdown(
+        f"""<div class="risk-hero">
+                <span style="opacity:0.6; font-size:0.85rem;">Overall risk</span>
+                <span class="big" style="color:{risk_color};">{risk_label}</span>
+                <span class="risk-pill" style="background:{risk_color}22; color:{risk_color};">
+                    <span class="risk-dot" style="background:{risk_color};"></span>{overall}
+                </span>
+            </div>""",
+        unsafe_allow_html=True,
+    )
+c2.metric("Critical flags", critical_n)
+c3.metric("Moderate flags", moderate_n)
+c4.metric("Relevant frameworks", len(relevance_result.relevant_frameworks))
 
 st.divider()
 
@@ -320,22 +399,35 @@ tab1, tab2, tab3 = st.tabs(["📋 Certification Relevance", "🚩 Greenwashing R
 with tab1:
     st.caption("Brand-facing output")
     if relevance_rows:
-        df = pd.DataFrame(relevance_rows)
-        fig = go.Figure(go.Bar(
-            x=df["Rank"].max() + 1 - df["Rank"],
-            y=df["Framework"],
-            orientation="h",
-            marker_color="#3F7D4E",
-        ))
-        fig.update_layout(
-            title="Framework relevance (longer bar = higher rank)",
-            xaxis_title="Relative rank", yaxis_title="",
-            height=350, margin=dict(l=10, r=10, t=40, b=10),
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white"),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        top3 = relevance_rows[:3]
+        rest = relevance_rows[3:]
+
+        st.markdown("##### Top matches")
+        cols = st.columns(len(top3))
+        for col, row in zip(cols, top3):
+            with col:
+                col.markdown(
+                    f"""<div class="fw-card" style="border-color:{GREEN}66; background:{GREEN}14;">
+                            <div class="fw-rank" style="color:{GREEN};">Rank {row['Rank']}</div>
+                            <div class="fw-name">{row['Framework']}</div>
+                            <div class="fw-reason">{row['Reason']}</div>
+                        </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        if rest:
+            st.markdown("##### Also relevant")
+            rows_html = "".join(
+                f"""<div class="fw-row">
+                        <span class="fw-row-rank">#{r['Rank']}</span>
+                        <span class="fw-row-name">{r['Framework']}</span>
+                        <span class="fw-row-reason">{truncate(r['Reason'])}</span>
+                    </div>"""
+                for r in rest
+            )
+            st.markdown(rows_html, unsafe_allow_html=True)
+            with st.expander("Show full reasoning for all frameworks"):
+                st.dataframe(pd.DataFrame(relevance_rows), use_container_width=True, hide_index=True)
     else:
         st.info("No relevant frameworks matched.")
 
@@ -345,18 +437,19 @@ with tab2:
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=gauge_value,
+        number={"suffix": "", "font": {"size": 1}},  # hide raw number, label carries meaning
         gauge={
             "axis": {"range": [0, 100], "visible": False},
-            "bar": {"color": {"GREEN": "#3F7D4E", "AMBER": "#f5a623", "RED": "#e5484d"}.get(overall, "#888")},
+            "bar": {"color": risk_color},
             "steps": [
-                {"range": [0, 33], "color": "rgba(63,125,78,0.25)"},
-                {"range": [33, 66], "color": "rgba(245,166,35,0.25)"},
-                {"range": [66, 100], "color": "rgba(229,72,77,0.25)"},
+                {"range": [0, 33], "color": f"{GREEN}33"},
+                {"range": [33, 66], "color": f"{AMBER}33"},
+                {"range": [66, 100], "color": f"{RED}33"},
             ],
         },
-        title={"text": f"Risk level: {overall}"},
+        title={"text": risk_label, "font": {"size": 22}},
     ))
-    fig.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=10),
+    fig.update_layout(height=240, margin=dict(l=20, r=20, t=50, b=10),
                        paper_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
     st.plotly_chart(fig, use_container_width=True)
 
