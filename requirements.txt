@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 altair==6.2.2
 annotated-types==0.8.0
 anyio==4.15.1
@@ -71,5 +71,4 @@ python-dateutil==2.9.0.post0
 six==1.17.0
 typing-inspection==0.4.4
 typing_extensions==4.16.0
->>>>>>> c7e1d3f32c572bd34e41870ff8f579296481c593
 Werkzeug==3.1.8
