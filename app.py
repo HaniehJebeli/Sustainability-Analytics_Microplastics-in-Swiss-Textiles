@@ -239,10 +239,14 @@ st.sidebar.title("🌿 Re:Nova")
 st.sidebar.caption("Verification engine controls")
 
 mode = st.sidebar.radio("Mode", ["Example brand", "Answer questions live"])
+
 st.sidebar.caption(
-    ":gray[Clean = claims match evidence. Red-flag = claims contradicted by "
-    "evidence. Amber = mixed, partially substantiated.]"
+    ":gray[If you click **Example brand**, you'll instantly see results for one "
+    "of 3 pre-built sample brands. If you click **Answer questions live**, you'll "
+    "fill in your own answers and get a real-time verdict.]"
 )
+
+
 session = None
 cache_key = None
 use_cache = True
